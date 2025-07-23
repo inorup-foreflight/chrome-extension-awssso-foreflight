@@ -104,10 +104,11 @@ function changeConsoleHeaderAndFooter() {
   const consoleFederatedLoginPattern = /AWSReservedSSO_(.+)_(.+)/;
   // show AWS SSO data to AWS console header
   chrome.runtime.sendMessage({ method: "getSSOData" }, function (response) {
-    if (!(response && response.data)) {
+    if (!response) {
+      console.warn("Cannot color AWS Console. Please open your AWS Start page so I can scrape the AWS Account Names and Ids", response)
       return;
     }
-    const accountMap = response.data.data;
+    const accountMap = response.data;
     console.debug("Retrieved account map from backend:", accountMap);
     const labelSelector = () =>
       document.querySelector(
