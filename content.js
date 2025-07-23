@@ -61,13 +61,8 @@ function saveDataOnSSOAppExpansion() {
       console.error(err);
       return;
     }
-    function onClickHandler() {
-      // awsAccountsApp.removeEventListener("click", onClickHandler);
-      console.debug("AWS Accounts app clicked, saving account names and profiles.");
-      saveAccountNames();
-    }
-    console.debug("AWS Accounts app is ready, adding click handler.");
-    awsAccountsApp.addEventListener("click", onClickHandler);
+    console.debug("AWS Accounts app is ready, saving account names and profiles.");
+    saveAccountNames();
   });
 }
 
