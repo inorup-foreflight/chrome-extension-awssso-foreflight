@@ -49,49 +49,65 @@ function onElementReady(selectorFn, fn) {
 }
 
 function saveDataOnSSOAppExpansion() {
-  // Finds the SSO portal app for AWS account selection and adds a click
-  // handler that will save the account names and profiles to local storage.
-  const awsAccountsAppSelector = () =>
-    Array.from(document.querySelectorAll("div[data-testid=account-list]")).find((el) => {
-      return true;
-    });
-  console.debug("Waiting for AWS Accounts app to be ready...");
-  onElementReady(awsAccountsAppSelector, function (err, awsAccountsApp) {
+  // The access portal renders accounts as table rows. Each row has a name cell
+  // ([data-testid=account-list-cell]) and a federation link
+  // ([data-testid=account-federation-link]) whose href carries account_id.
+  const accountRowsSelector = () =>
+    Array.from(document.querySelectorAll("[data-testid=account-list-cell]"));
+  console.debug("Waiting for AWS account list to be ready...");
+  onElementReady(accountRowsSelector, function (err) {
     if (err) {
       console.error(err);
       return;
     }
-    console.debug("AWS Accounts app is ready, saving account names and profiles.");
+    console.debug("AWS account list is ready, saving account names.");
     saveAccountNames();
+
+    // Re-scrape when the table changes (pagination, filtering, refresh).
+    let debounce;
+    new MutationObserver(() => {
+      clearTimeout(debounce);
+      debounce = setTimeout(saveAccountNames, 500);
+    }).observe(document.body, { childList: true, subtree: true });
   });
 }
 
+function extractAccountId(row) {
+  const link = row.querySelector("a[data-testid=account-federation-link]");
+  if (!link) return null;
+  const match = (link.getAttribute("href") || "").match(/account_id=(\d{12})/);
+  if (match) return match[1];
+  const text = link.innerText.replaceAll("-", "").trim();
+  return /^\d{12}$/.test(text) ? text : null;
+}
+
+let lastSavedAccounts = "";
 
 function saveAccountNames() {
-  console.debug("Attempting to save account names and IDs...");
-  const accountsSelector = () =>
-    Array.from(document.querySelectorAll("[data-testid=account-list-cell]"));
-  onElementReady(accountsSelector, function (err, accountElements) {
-    if (err) {
-      console.error(err);
-      return;
+  const accountMap = {};
+  for (const cell of document.querySelectorAll("[data-testid=account-list-cell]")) {
+    const row = cell.closest("tr");
+    if (!row) continue;
+    const name = cell.innerText.trim();
+    const accountId = extractAccountId(row);
+    if (name && accountId) {
+      accountMap[accountId] = name;
     }
-    console.debug("Found account elements:", accountElements);
-    const accountMap = accountElements.reduce((map, el) => {
-      const name = Array.from(el.querySelectorAll("span")).find(x=> x.children.length == 0).innerText
-      const accountId = Array.from(el.querySelectorAll("span")).find(x=> x.children.length == 0 && !isNaN(x.innerText)).innerText
-      console.debug(`Saving account: ${accountId} - ${name}`);
-      map[accountId] = name;
-      return map;
-    }, {});
+  }
 
-    chrome.runtime.sendMessage(
-      { method: "saveSSOData", data: accountMap },
-      function (response) {
-        console.log("Saved SSO data to LocalStorage for Console augmentation.");
-      }
-    );
-  });
+  const serialized = JSON.stringify(accountMap);
+  if (Object.keys(accountMap).length === 0 || serialized === lastSavedAccounts) {
+    return;
+  }
+  lastSavedAccounts = serialized;
+  console.debug("Saving accounts:", accountMap);
+
+  chrome.runtime.sendMessage(
+    { method: "saveSSOData", data: accountMap },
+    function () {
+      console.log(`Saved ${Object.keys(accountMap).length} accounts to storage for Console augmentation.`);
+    }
+  );
 }
 
 function changeConsoleHeaderAndFooter() {
