@@ -249,6 +249,47 @@ function applyBarColor(el, color) {
   ensureContrastStyles();
   el.classList.toggle("ce-sso-light-text", useLightText);
   el.classList.toggle("ce-sso-dark-text", !useLightText);
+
+  markOpaqueDescendants(el);
+  if (!el.ceSsoObserver) {
+    // The bar renders popovers (search field, search results, menus) lazily,
+    // so re-mark whenever its subtree or classes change.
+    let pending = false;
+    el.ceSsoObserver = new MutationObserver(() => {
+      if (pending) return;
+      pending = true;
+      setTimeout(() => {
+        pending = false;
+        markOpaqueDescendants(el);
+      }, 0);
+    });
+    el.ceSsoObserver.observe(el, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+  }
+}
+
+// Marks descendants of the bar that paint their own background (e.g. the
+// search input and its white results dropdown) so the contrast override
+// doesn't apply to them or anything inside them.
+function markOpaqueDescendants(bar) {
+  const walk = (parent) => {
+    for (const child of parent.children) {
+      const bg = getComputedStyle(child).backgroundColor;
+      const alpha = bg.match(/[\d.]+/g)?.[3];
+      const opaque = bg !== "transparent" && (alpha === undefined || Number(alpha) > 0);
+      if (opaque) {
+        if (!child.classList.contains("ce-sso-keep-color")) child.classList.add("ce-sso-keep-color");
+      } else {
+        if (child.classList.contains("ce-sso-keep-color")) child.classList.remove("ce-sso-keep-color");
+        walk(child);
+      }
+    }
+  };
+  walk(bar);
 }
 
 // WCAG relative luminance. Below ~0.179, white text has better contrast than black.
@@ -265,9 +306,15 @@ function ensureContrastStyles() {
   const style = document.createElement("style");
   style.id = "ce-sso-contrast-styles";
   // Icons in the console nav use currentColor, so overriding color recolors them too.
+  // The unified search box is excluded wholesale: its white background is painted
+  // by a hint <input> layered *behind* the real input and buttons, so it isn't an
+  // ancestor of them and markOpaqueDescendants() can't detect it.
+  const excluded = ".ce-sso-keep-color, .ce-sso-keep-color *, #aws-unified-search-container *";
   style.textContent = `
-    .ce-sso-light-text, .ce-sso-light-text * { color: #ffffff !important; }
-    .ce-sso-dark-text, .ce-sso-dark-text * { color: #16191f !important; }
+    .ce-sso-light-text,
+    .ce-sso-light-text :not(${excluded}) { color: #ffffff !important; }
+    .ce-sso-dark-text,
+    .ce-sso-dark-text :not(${excluded}) { color: #16191f !important; }
   `;
   document.head.appendChild(style);
 }
