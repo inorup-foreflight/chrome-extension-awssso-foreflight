@@ -184,13 +184,14 @@ function changeConsoleHeaderAndFooter() {
             re = new RegExp(regexp);
             console.debug(`Checking if account name ${accountName} matches RegEx: ${regexp}`);
             if (re.test(accountName)) {
+              const color = colors[regexp];
               const headerSelector = () =>
-                document.querySelector("header").querySelector("nav");
+                document.querySelector("header")?.querySelector("nav");
               onElementReady(headerSelector, function (err, header) {
                 if (err) {
                   return;
                 }
-                header.style.backgroundColor = colors[regexp];
+                applyBarColor(header, color);
               });
               const footerSelector = () =>
                 document.querySelector("div[id='console-nav-footer-inner']");
@@ -198,7 +199,7 @@ function changeConsoleHeaderAndFooter() {
                 if (err) {
                   return;
                 }
-                footer.style.backgroundColor = colors[regexp];
+                applyBarColor(footer, color);
               });
             }
           }
@@ -206,4 +207,38 @@ function changeConsoleHeaderAndFooter() {
       });
     });
   });
+}
+
+// Sets the background color of a console bar and picks a readable foreground
+// (white or near-black) based on the background's luminance.
+function applyBarColor(el, color) {
+  el.style.backgroundColor = color;
+  const rgb = getComputedStyle(el).backgroundColor.match(/[\d.]+/g);
+  if (!rgb) return;
+  const useLightText = relativeLuminance(rgb.slice(0, 3).map(Number)) < 0.179;
+
+  ensureContrastStyles();
+  el.classList.toggle("ce-sso-light-text", useLightText);
+  el.classList.toggle("ce-sso-dark-text", !useLightText);
+}
+
+// WCAG relative luminance. Below ~0.179, white text has better contrast than black.
+function relativeLuminance([r, g, b]) {
+  const lin = (c) => {
+    c /= 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function ensureContrastStyles() {
+  if (document.getElementById("ce-sso-contrast-styles")) return;
+  const style = document.createElement("style");
+  style.id = "ce-sso-contrast-styles";
+  // Icons in the console nav use currentColor, so overriding color recolors them too.
+  style.textContent = `
+    .ce-sso-light-text, .ce-sso-light-text * { color: #ffffff !important; }
+    .ce-sso-dark-text, .ce-sso-dark-text * { color: #16191f !important; }
+  `;
+  document.head.appendChild(style);
 }
