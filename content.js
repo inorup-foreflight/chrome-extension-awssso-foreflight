@@ -27,25 +27,54 @@ window.addEventListener("load", function () {
 });
 
 // Helper function for waiting until an element selection has been rendered.
-function onElementReady(selectorFn, fn) {
+// Uses a MutationObserver rather than requestAnimationFrame, because rAF is
+// paused in background tabs. The timeout only counts down while the tab is
+// visible, so pages opened in the background don't give up before being viewed.
+function onElementReady(selectorFn, fn, timeoutMs = 30000) {
   console.debug("Waiting for element to be ready...");
-  let timedOut = false;
-  setTimeout(function () {
-    timedOut = true;
-  }, 30000);
-  const waitForElement = function () {
-    if (timedOut) {
-      fn(new Error("Element selection timed out."));
-      return;
-    }
-    const selection = selectorFn();
-    //console.debug("Element selection:", selection);
-    const firstEl = Array.isArray(selection) ? selection[0] : selection;
-    firstEl
-      ? fn(undefined, selection)
-      : window.requestAnimationFrame(waitForElement);
+  let done = false;
+  let timer;
+  let observer;
+
+  const finish = (err, selection) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    if (observer) observer.disconnect();
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    fn(err, selection);
   };
-  waitForElement();
+
+  const check = () => {
+    if (done) return true;
+    const selection = selectorFn();
+    const firstEl = Array.isArray(selection) ? selection[0] : selection;
+    if (firstEl) {
+      finish(undefined, selection);
+      return true;
+    }
+    return false;
+  };
+
+  const startTimer = () => {
+    clearTimeout(timer);
+    if (document.hidden) return; // restarted when the tab becomes visible
+    timer = setTimeout(() => {
+      if (document.hidden) return;
+      if (!check()) finish(new Error("Element selection timed out."));
+    }, timeoutMs);
+  };
+
+  function onVisibilityChange() {
+    if (check()) return;
+    document.hidden ? clearTimeout(timer) : startTimer();
+  }
+
+  if (check()) return;
+  observer = new MutationObserver(check);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  startTimer();
 }
 
 function saveDataOnSSOAppExpansion() {
